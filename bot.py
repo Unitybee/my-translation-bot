@@ -9,6 +9,7 @@ from datetime import datetime
 import re
 from flask import Flask
 import threading
+import time
 
 # تنظیم لاگینگ
 logging.basicConfig(
@@ -21,7 +22,9 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv('BALE_TOKEN', '643390345:_RraKmp0R1jrJhE4z_JQhBh7oeOZMY03kXE')
 
 bot = Bot(TOKEN)
-translator = Translator()
+
+# راه‌اندازی مترجم با تنظیمات timeout بیشتر
+translator = Translator(service_urls=['translate.google.com'])
 
 # Thread pool برای پردازش همزمان
 executor = ThreadPoolExecutor(max_workers=4)
@@ -120,10 +123,20 @@ def translate_with_cache(text: str, src: str, dest: str) -> str:
     if cached:
         return cached
     
-    # ترجمه
-    result = translator.translate(text, src=src, dest=dest)
-    set_cached_translation(text, src, dest, result.text)
-    return result.text
+    # ترجمه با تلاش مجدد (Retry)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            result = translator.translate(text, src=src, dest=dest)
+            set_cached_translation(text, src, dest, result.text)
+            return result.text
+        except Exception as e:
+            logger.error(f"تلاش {attempt + 1} برای ترجمه ناموفق: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)  # صبر قبل از تلاش مجدد
+            else:
+                raise e
+    return None
 
 def get_lang_info(lang_code: str) -> dict:
     return LANGUAGES.get(lang_code, {'name': lang_code, 'emoji': '🌐', 'native': lang_code})
@@ -213,12 +226,10 @@ async def on_message(message: Message):
     
     # لیست زبان‌ها
     if user_text in ['/languages', '/l']:
-        # تقسیم زبان‌ها به چند بخش برای نمایش بهتر
         lang_list = []
         for code, info in LANGUAGES.items():
             lang_list.append(f"{info['emoji']} `{code}` → {info['name']}")
         
-        # دسته‌بندی زبان‌ها
         popular = ['fa', 'en', 'ar', 'tr', 'de', 'fr', 'es', 'ru']
         popular_langs = [f"{LANGUAGES[code]['emoji']} `{code}` → {LANGUAGES[code]['name']}" 
                         for code in popular if code in LANGUAGES]
@@ -289,7 +300,6 @@ async def on_message(message: Message):
         total = bot_stats.get('total_translations', 0)
         users_count = len(bot_stats.get('users', {}))
         
-        # پیدا کردن کاربران فعال
         active_users = sorted(
             bot_stats.get('users', {}).items(),
             key=lambda x: x[1].get('count', 0),
@@ -343,32 +353,6 @@ async def on_message(message: Message):
 • تنظیمات شما ذخیره می‌شود
 • ترجمه‌های تکراری کش می‌شوند
 • آمار ترجمه‌ها نگهداری می‌شود
-
-**📱 پشتیبانی:**
-برای ارتباط با پشتیبان، از دستور /contact استفاده کنید.
-        """
-        await message.reply(reply)
-        return
-    
-    # تماس با پشتیبان
-    if user_text == '/contact':
-        reply = """
-📱 **ارتباط با پشتیبان**
-
-برای ارتباط با تیم پشتیبانی، می‌توانید از راه‌های زیر استفاده کنید:
-
-📧 **ایمیل:** support@example.com
-💬 **آیدی:** @SupportBot
-
-**سوالات متداول:**
-❓ چطور زبان را تغییر دهم؟
-→ کد زبان را مستقیم بفرستید یا از /setlang استفاده کنید
-
-❓ چند زبان پشتیبانی می‌شود؟
-→ بیش از ۲۰ زبان زنده دنیا
-
-❓ ترجمه‌ها دقیق هستند؟
-→ از موتور ترجمه گوگل استفاده می‌شود
         """
         await message.reply(reply)
         return
@@ -408,7 +392,6 @@ async def on_message(message: Message):
             else:
                 await message.reply("❌ خطا در ذخیره تنظیمات!")
         else:
-            # پیشنهاد زبان‌های مشابه
             suggestions = [code for code in LANGUAGES.keys() if code.startswith(lang_code[:2])]
             suggest_text = f"\n\n💡 شاید منظور شما: {', '.join([f'`{code}`' for code in suggestions[:3]])}" if suggestions else ""
             
@@ -439,17 +422,16 @@ async def on_message(message: Message):
         try:
             detected = translator.detect(user_text)
             detected_lang = detected.lang
-            confidence = getattr(detected, 'confidence', 0)
-        except:
+        except Exception as e:
+            logger.error(f"خطا در تشخیص زبان: {e}")
             detected_lang = 'en'
-            confidence = 0
         
         # اگر زبان مبدأ و مقصد یکی بود
         if detected_lang == target_lang:
             await status_msg.edit(f"ℹ️ متن شما به {target_info['emoji']} **{target_info['name']}** است. نیازی به ترجمه نیست!")
             return
         
-        # ترجمه با کش
+        # ترجمه با کش و تلاش مجدد
         try:
             loop = asyncio.get_event_loop()
             translated_text = await loop.run_in_executor(
@@ -457,6 +439,10 @@ async def on_message(message: Message):
                 translate_with_cache,
                 user_text, detected_lang, target_lang
             )
+            
+            if translated_text is None:
+                await status_msg.edit("❌ خطا در ترجمه! لطفاً دوباره تلاش کنید.")
+                return
             
             # افزایش آمار
             user_manager.increment_translation(user_id)
@@ -475,7 +461,6 @@ _{user_text[:200]}{'...' if len(user_text) > 200 else ''}_
 {translated_text}
             """
             
-            # اگر متن طولانی بود، اطلاعات اضافه
             if len(user_text) > 200:
                 reply_text += f"\n\n📊 **طول متن:** {len(user_text)} کاراکتر"
             
@@ -483,7 +468,7 @@ _{user_text[:200]}{'...' if len(user_text) > 200 else ''}_
             
         except Exception as e:
             logger.error(f"خطا در ترجمه: {e}")
-            await status_msg.edit("❌ خطا در ترجمه! لطفاً دوباره تلاش کنید.")
+            await status_msg.edit("❌ خطا در ترجمه! لطفاً دوباره تلاش کنید یا زبان مقصد را تغییر دهید.")
             
     except Exception as e:
         logger.error(f"خطای عمومی: {e}")
