@@ -1,4 +1,5 @@
 googletrans==4.0.0-rc1
-flask
-python-dotenv
+flask==2.3.3
+python-dotenv==1.0.0
 python-bale-bot==2.5.0
+httpx==0.27.0
