@@ -401,8 +401,9 @@ async def on_message(message: Message):
         await message.reply(reply)
         return
     
-    # ========== تغییر سریع زبان با کد مستقیم ==========
-    if len(user_text) <= 5 and user_text.lower() in LANGUAGES:
+       # ========== تغییر سریع زبان با کد مستقیم ==========
+    # فقط اگه متن کاربر دقیقاً با یکی از کدهای زبان مطابقت داشته باشه
+    if user_text.lower() in LANGUAGES:
         lang_code = user_text.lower()
         lang_info = get_lang_info(lang_code)
         
