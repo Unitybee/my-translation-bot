@@ -1,4 +1,4 @@
-bale
+python-bale-bot
 deep-translator
 flask
 python-dotenv
