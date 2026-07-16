@@ -1,5 +1,6 @@
 from bale import Bot, Message
-from googletrans import Translator
+from deep_translator import GoogleTranslator
+from deep_translator.exceptions import NotValidPayload, NotValidLength
 import json
 import os
 import logging
@@ -23,18 +24,17 @@ TOKEN = os.getenv('BALE_TOKEN', '643390345:_RraKmp0R1jrJhE4z_JQhBh7oeOZMY03kXE')
 
 bot = Bot(TOKEN)
 
-# ========== راه‌اندازی مترجم با تنظیمات ویژه ==========
-# استفاده از ترجمه آفلاین (بدون نیاز به اینترنت) برای مواقعی که خطا میده
+# ========== کلاس مترجم امن با deep-translator ==========
 class SafeTranslator:
     def __init__(self):
-        self.translator = Translator()
         self.cache = {}
         self.last_request_time = 0
-        self.min_interval = 1.0  # حداقل ۱ ثانیه بین درخواست‌ها
+        self.min_interval = 0.5  # نیم ثانیه بین درخواست‌ها
         
-    def detect(self, text):
+    def detect_language(self, text):
+        """تشخیص زبان با استفاده از deep-translator"""
         try:
-            # بررسی کش تشخیص زبان
+            # بررسی کش
             cache_key = f"detect_{text[:50]}"
             if cache_key in self.cache:
                 return self.cache[cache_key]
@@ -44,23 +44,23 @@ class SafeTranslator:
             if current_time - self.last_request_time < self.min_interval:
                 time.sleep(self.min_interval - (current_time - self.last_request_time))
             
-            result = self.translator.detect(text)
+            # تشخیص زبان
+            detector = GoogleTranslator(target='en')
+            detected = detector.detect(text)
+            
             self.last_request_time = time.time()
-            self.cache[cache_key] = result
-            return result
+            self.cache[cache_key] = detected
+            return detected
+            
         except Exception as e:
-            logger.warning(f"خطا در تشخیص زبان: {e}. استفاده از پیش‌فرض 'en'")
-            # برگرداندن یک شیء شبیه به نتیجه تشخیص
-            class DummyDetect:
-                def __init__(self):
-                    self.lang = 'en'
-                    self.confidence = 0.5
-            return DummyDetect()
+            logger.warning(f"خطا در تشخیص زبان: {e}")
+            return 'en'  # پیش‌فرض انگلیسی
     
-    def translate(self, text, src='auto', dest='fa'):
+    def translate_text(self, text, source='auto', target='fa'):
+        """ترجمه متن با deep-translator و تلاش مجدد"""
         try:
-            # بررسی کش ترجمه
-            cache_key = f"trans_{src}_{dest}_{text[:100]}"
+            # بررسی کش
+            cache_key = f"trans_{source}_{target}_{text[:100]}"
             if cache_key in self.cache:
                 return self.cache[cache_key]
             
@@ -72,37 +72,37 @@ class SafeTranslator:
             # تلاش برای ترجمه با حداکثر ۳ بار تکرار
             for attempt in range(3):
                 try:
-                    result = self.translator.translate(text, src=src, dest=dest)
+                    # استفاده از GoogleTranslator
+                    translator = GoogleTranslator(source=source, target=target)
+                    translated = translator.translate(text)
+                    
                     self.last_request_time = time.time()
                     
                     # ذخیره در کش
-                    class DummyResult:
-                        def __init__(self, text):
-                            self.text = text
-                    dummy_result = DummyResult(result.text)
-                    self.cache[cache_key] = dummy_result
-                    return dummy_result
+                    self.cache[cache_key] = translated
+                    return translated
+                    
+                except (NotValidPayload, NotValidLength) as e:
+                    # این خطاها مربوط به ورودی نامعتبر هستن
+                    logger.warning(f"ورودی نامعتبر برای ترجمه: {e}")
+                    return f"⚠️ خطا: متن ورودی معتبر نیست. لطفاً متن دیگری بفرستید."
+                    
                 except Exception as e:
                     logger.warning(f"تلاش {attempt+1} برای ترجمه ناموفق: {e}")
                     if attempt < 2:
-                        time.sleep(2 ** attempt)  # تاخیر نمایی: 1, 2, 4 ثانیه
+                        wait_time = 2 ** attempt  # تاخیر نمایی: 1, 2 ثانیه
+                        time.sleep(wait_time)
                     else:
-                        # اگر همه تلاش‌ها ناموفق بود
-                        error_text = f"⚠️ خطا در ترجمه. متن اصلی:\n{text}"
-                        class ErrorResult:
-                            def __init__(self, text):
-                                self.text = text
-                        return ErrorResult(error_text)
+                        # همه تلاش‌ها ناموفق
+                        return f"❌ خطا در ترجمه! لطفاً دوباره تلاش کنید.\n\nمتن اصلی:\n{text}"
             
             return None
+            
         except Exception as e:
             logger.error(f"خطا در ترجمه: {e}")
-            # برگرداندن متن اصلی با یک پیام خطا
-            class ErrorResult:
-                def __init__(self, text):
-                    self.text = f"❌ خطا در ترجمه! لطفاً دوباره تلاش کنید.\n\nمتن اصلی:\n{text}"
-            return ErrorResult(text)
+            return f"❌ خطا در ترجمه! لطفاً دوباره تلاش کنید.\n\nمتن اصلی:\n{text}"
 
+# ایجاد نمونه از مترجم امن
 safe_translator = SafeTranslator()
 
 # Thread pool برای پردازش همزمان
@@ -445,7 +445,7 @@ async def on_message(message: Message):
             """)
         return
     
-    # ========== ترجمه متن با SafeTranslator ==========
+    # ========== ترجمه متن با deep-translator ==========
     if len(user_text) < 2:
         await message.reply("📝 لطفاً متن معتبری برای ترجمه بفرستید.")
         return
@@ -458,10 +458,14 @@ async def on_message(message: Message):
         target_lang = user_manager.get_target_lang(user_id)
         target_info = get_lang_info(target_lang)
         
-        # تشخیص زبان مبدأ با SafeTranslator
+        # تشخیص زبان مبدأ
         try:
-            detected = safe_translator.detect(user_text)
-            detected_lang = detected.lang
+            loop = asyncio.get_event_loop()
+            detected_lang = await loop.run_in_executor(
+                executor,
+                safe_translator.detect_language,
+                user_text
+            )
         except Exception as e:
             logger.error(f"خطا در تشخیص زبان: {e}")
             detected_lang = 'en'
@@ -471,24 +475,23 @@ async def on_message(message: Message):
             await status_msg.edit(f"ℹ️ متن شما به {target_info['emoji']} **{target_info['name']}** است. نیازی به ترجمه نیست!")
             return
         
-        # ترجمه با SafeTranslator و تلاش مجدد
+        # ترجمه با deep-translator
         try:
-            # اجرا در thread جداگانه
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
+            # ترجمه در thread جداگانه
+            translated_text = await loop.run_in_executor(
                 executor,
-                safe_translator.translate,
-                user_text, detected_lang, target_lang
+                safe_translator.translate_text,
+                user_text,
+                detected_lang,
+                target_lang
             )
             
             # بررسی نتیجه
-            if result is None or not hasattr(result, 'text'):
+            if translated_text is None:
                 await status_msg.edit("❌ خطا در ترجمه! لطفاً دوباره تلاش کنید یا زبان مقصد را تغییر دهید.")
                 return
             
-            translated_text = result.text
-            
-            # اگر متن ترجمه شده با خطا شروع میشه (خطا از سمت مترجم)
+            # اگر خطا بود
             if translated_text.startswith("⚠️") or translated_text.startswith("❌"):
                 await status_msg.edit(translated_text)
                 return
@@ -534,7 +537,7 @@ def health_check():
 def run_bot():
     """اجرای ربات در یک ترد جداگانه"""
     print("=" * 50)
-    print("🤖 ربات ترجمه حرفه‌ای با SafeTranslator")
+    print("🤖 ربات ترجمه حرفه‌ای با deep-translator")
     print("=" * 50)
     print(f"📊 {len(user_settings)} کاربر تنظیمات ذخیره شده دارند.")
     print(f"🌍 {len(LANGUAGES)} زبان پشتیبانی می‌شود.")
