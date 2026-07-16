@@ -7,7 +7,29 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from datetime import datetime
 import re
+from flask import Flask
+# import os
+import threading
 
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return "Bot is running!", 200
+
+# ====== کد ربات شما اینجاست ======
+# ... (همون کد قبلی رباتت)
+# =================================
+
+if __name__ == "__main__":
+    # ربات رو در یک ترد جداگانه اجرا کن
+    bot_thread = threading.Thread(target=on_message)  # اسم تابع رباتت رو بذار
+    bot_thread.start()
+    
+    # وب سرور رو شروع کن برای Render
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
 # تنظیم لاگینگ
 logging.basicConfig(
     level=logging.INFO,
