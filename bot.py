@@ -11,6 +11,11 @@ import re
 from flask import Flask
 import threading
 import time
+from langdetect import detect, DetectorFactory
+from langdetect.lang_detect_exception import LangDetectException
+
+# تنظیم seed برای تشخیص دقیق‌تر زبان
+DetectorFactory.seed = 0
 
 # تنظیم لاگینگ
 logging.basicConfig(
@@ -24,34 +29,33 @@ TOKEN = os.getenv('BALE_TOKEN', '643390345:_RraKmp0R1jrJhE4z_JQhBh7oeOZMY03kXE')
 
 bot = Bot(TOKEN)
 
-# ========== کلاس مترجم امن با deep-translator ==========
+# ========== کلاس مترجم امن ==========
 class SafeTranslator:
     def __init__(self):
         self.cache = {}
         self.last_request_time = 0
         self.min_interval = 0.5  # نیم ثانیه بین درخواست‌ها
+        self.detector_cache = {}  # کش برای تشخیص زبان
         
     def detect_language(self, text):
-        """تشخیص زبان با استفاده از deep-translator"""
+        """تشخیص زبان با استفاده از langdetect"""
         try:
             # بررسی کش
             cache_key = f"detect_{text[:50]}"
-            if cache_key in self.cache:
-                return self.cache[cache_key]
-            
-            # محدود کردن نرخ درخواست
-            current_time = time.time()
-            if current_time - self.last_request_time < self.min_interval:
-                time.sleep(self.min_interval - (current_time - self.last_request_time))
+            if cache_key in self.detector_cache:
+                return self.detector_cache[cache_key]
             
             # تشخیص زبان
-            detector = GoogleTranslator(target='en')
-            detected = detector.detect(text)
+            detected_lang = detect(text)
             
-            self.last_request_time = time.time()
-            self.cache[cache_key] = detected
-            return detected
+            # ذخیره در کش
+            self.detector_cache[cache_key] = detected_lang
+            return detected_lang
             
+        except LangDetectException as e:
+            logger.warning(f"خطا در تشخیص زبان (LangDetectException): {e}")
+            # اگر متن خیلی کوتاه بود یا قابل تشخیص نبود، پیش‌فرض انگلیسی
+            return 'en'
         except Exception as e:
             logger.warning(f"خطا در تشخیص زبان: {e}")
             return 'en'  # پیش‌فرض انگلیسی
@@ -458,7 +462,7 @@ async def on_message(message: Message):
         target_lang = user_manager.get_target_lang(user_id)
         target_info = get_lang_info(target_lang)
         
-        # تشخیص زبان مبدأ
+        # تشخیص زبان مبدأ با langdetect
         try:
             loop = asyncio.get_event_loop()
             detected_lang = await loop.run_in_executor(
@@ -466,6 +470,12 @@ async def on_message(message: Message):
                 safe_translator.detect_language,
                 user_text
             )
+            
+            # اگر زبانی که تشخیص داده شده در لیست ما نیست
+            if detected_lang not in LANGUAGES:
+                logger.warning(f"زبان تشخیص داده شده '{detected_lang}' در لیست نیست. استفاده از 'en'")
+                detected_lang = 'en'
+                
         except Exception as e:
             logger.error(f"خطا در تشخیص زبان: {e}")
             detected_lang = 'en'
@@ -537,7 +547,7 @@ def health_check():
 def run_bot():
     """اجرای ربات در یک ترد جداگانه"""
     print("=" * 50)
-    print("🤖 ربات ترجمه حرفه‌ای با deep-translator")
+    print("🤖 ربات ترجمه حرفه‌ای با deep-translator + langdetect")
     print("=" * 50)
     print(f"📊 {len(user_settings)} کاربر تنظیمات ذخیره شده دارند.")
     print(f"🌍 {len(LANGUAGES)} زبان پشتیبانی می‌شود.")
