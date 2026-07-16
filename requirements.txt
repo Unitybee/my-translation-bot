@@ -3,3 +3,4 @@ deep-translator
 flask
 python-dotenv
 requests
+langdetect
