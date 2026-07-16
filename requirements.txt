@@ -2,4 +2,3 @@ googletrans==4.0.0-rc1
 flask
 python-dotenv
 python-bale-bot==2.5.0
-
