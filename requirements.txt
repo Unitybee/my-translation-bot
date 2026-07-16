@@ -1,5 +1,5 @@
-googletrans
+bale
+deep-translator
 flask
 python-dotenv
-python-bale-bot
-httpx
+requests
