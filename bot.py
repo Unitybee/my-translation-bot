@@ -8,28 +8,8 @@ import asyncio
 from datetime import datetime
 import re
 from flask import Flask
-# import os
 import threading
 
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/health')
-def health_check():
-    return "Bot is running!", 200
-
-# ====== کد ربات شما اینجاست ======
-# ... (همون کد قبلی رباتت)
-# =================================
-
-if __name__ == "__main__":
-    # ربات رو در یک ترد جداگانه اجرا کن
-    bot_thread = threading.Thread(target=on_message)  # اسم تابع رباتت رو بذار
-    bot_thread.start()
-    
-    # وب سرور رو شروع کن برای Render
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
 # تنظیم لاگینگ
 logging.basicConfig(
     level=logging.INFO,
@@ -509,7 +489,23 @@ _{user_text[:200]}{'...' if len(user_text) > 200 else ''}_
         logger.error(f"خطای عمومی: {e}")
         await message.reply("❌ خطای غیرمنتظره! لطفاً دوباره تلاش کنید.")
 
-# ========== اجرای ربات ==========
+# ========== Flask App برای Render ==========
+app = Flask(__name__)
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return "🤖 ربات ترجمه در حال اجراست!", 200
+
+def run_bot():
+    """اجرای ربات در یک ترد جداگانه"""
+    print("🤖 ربات ترجمه شروع به کار کرد...")
+    try:
+        bot.run()
+    except Exception as e:
+        print(f"❌ خطا در اجرای ربات: {e}")
+
+# ========== شروع برنامه ==========
 if __name__ == "__main__":
     print("=" * 50)
     print("🤖 ربات ترجمه حرفه‌ای")
@@ -521,9 +517,11 @@ if __name__ == "__main__":
     print("✅ ربات آماده به کار است!")
     print("=" * 50)
     
-    try:
-        bot.run()
-    except KeyboardInterrupt:
-        print("\n🛑 ربات متوقف شد.")
-    except Exception as e:
-        print(f"❌ خطا: {e}")
+    # ربات را در یک ترد جداگانه اجرا کن
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # وب سرور Flask را برای Render اجرا کن
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🌐 وب سرور روی پورت {port} در حال اجراست...")
+    app.run(host='0.0.0.0', port=port)
