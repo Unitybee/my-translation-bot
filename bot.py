@@ -401,24 +401,23 @@ async def on_message(message: Message):
         await message.reply(reply)
         return
     
-    # ========== تغییر سریع زبان با کد مستقیم ==========
-    # فقط اگه متن کاربر یک کد زبان معتبر و کوتاه (حداکثر ۳ کاراکتر) باشد
-    if len(user_text) <= 3 and user_text.lower() in LANGUAGES:
-        lang_code = user_text.lower()
-        lang_info = get_lang_info(lang_code)
-        
-        if user_manager.set_target_lang(user_id, lang_code):
-            await message.reply(f"""
+# ========== تغییر سریع زبان با کد مستقیم ==========
+# فقط اگه متن کاربر یک کد زبان معتبر و کوتاه (حداکثر ۳ کاراکتر) باشد
+if len(user_text) <= 3 and user_text.lower() in LANGUAGES:
+    lang_code = user_text.lower()
+    lang_info = get_lang_info(lang_code)
+    
+    if user_manager.set_target_lang(user_id, lang_code):
+        await message.reply(f"""
 ✅ **زبان تغییر کرد!**
 
 🌐 زبان مقصد: {lang_info['emoji']} **{lang_info['name']}** (`{lang_code}`)
 
 ⚡ حالا هر متنی بفرستید به {lang_info['name']} ترجمه می‌شود.
-            """)
-        else:
-            await message.reply("❌ خطا در ذخیره تنظیمات!")
-        return
-    
+        """)
+    else:
+        await message.reply("❌ خطا در ذخیره تنظیمات!")
+    return
     # ========== مدیریت انتخاب زبان ==========
     if user_id in user_states and user_states[user_id] == 'waiting_for_lang':
         lang_code = user_text.lower()
@@ -428,7 +427,7 @@ async def on_message(message: Message):
                 del user_states[user_id]
                 lang_info = get_lang_info(lang_code)
                 await message.reply(f"""
-✅ **زبان با موفقیت تنظیم شد!**
+            ✅ **زبان با موفقیت تنظیم شد!**
 
 🌐 زبان مقصد: {lang_info['emoji']} **{lang_info['name']}** (`{lang_code}`)
 
