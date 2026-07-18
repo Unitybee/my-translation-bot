@@ -1,0 +1,26 @@
+name: Run Translation Bot
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"  # هر ۱۵ دقیقه یک بار
+  workflow_dispatch:        # برای اجرای دستی
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: دریافت کد
+        uses: actions/checkout@v4
+
+      - name: نصب پایتون
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: نصب کتابخانه‌ها
+        run: pip install -r requirements.txt
+
+      - name: اجرای ربات
+        env:
+          BALE_TOKEN: ${{ secrets.BALE_TOKEN }}
+        run: python bot.py
