@@ -27,7 +27,12 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv('BALE_TOKEN', '643390345:qpmMhzvaLfpMDBvugEW5NJQz1DD1KGohbP4')
 
 bot = Bot(TOKEN)
-
+@app.route('/delete_webhook')
+def delete_webhook():
+    import requests
+    url = f"https://api.bale.ai/v1/bots/{TOKEN}/deleteWebhook"
+    response = requests.get(url)
+    return response.json()
 # ========== کلاس مترجم امن ==========
 class SafeTranslator:
     def __init__(self):
