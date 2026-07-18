@@ -4,7 +4,9 @@ on:
   schedule:
     - cron: "*/15 * * * *"  # هر ۱۵ دقیقه یک بار
   workflow_dispatch:        # برای اجرای دستی
-
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   run-bot:
     runs-on: ubuntu-latest
