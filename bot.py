@@ -24,7 +24,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ========== تنظیمات اولیه ==========
-TOKEN = os.getenv('BALE_TOKEN', '643390345:_RraKmp0R1jrJhE4z_JQhBh7oeOZMY03kXE')
+TOKEN = os.getenv('BALE_TOKEN', '643390345:qpmMhzvaLfpMDBvugEW5NJQz1DD1KGohbP4')
 
 bot = Bot(TOKEN)
 
