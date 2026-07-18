@@ -1,12 +1,14 @@
-name: Run Translation Bot
+name: Single Bot Runner
 
 on:
   schedule:
-    - cron: "*/15 * * * *"  # هر ۱۵ دقیقه یک بار
+    - cron: "0 */3 * * *"  # هر ۳ ساعت یک بار در دقیقه صفر
   workflow_dispatch:        # برای اجرای دستی
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: single-bot-runner
   cancel-in-progress: true
+
 jobs:
   run-bot:
     runs-on: ubuntu-latest
