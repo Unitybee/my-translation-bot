@@ -29,6 +29,52 @@ TOKEN = os.getenv('BALE_TOKEN', '1366167138:xgq_axuzrKuqv4lRoiiOV5Sj8Yke2oCxpHo'
 
 bot = Bot(TOKEN)
 
+# ========== قفل (Lock) برای جلوگیری از اجرای همزمان ==========
+LOCK_FILE = 'bot.lock'
+
+def acquire_lock():
+    """بررسی و ایجاد قفل برای جلوگیری از اجرای همزمان"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            # بررسی می‌کند که آیا قفل قدیمی است (بیش از ۵ دقیقه)
+            try:
+                with open(LOCK_FILE, 'r') as f:
+                    timestamp = float(f.read())
+                    if time.time() - timestamp > 300:  # ۵ دقیقه
+                        os.remove(LOCK_FILE)  # قفل قدیمی را پاک کن
+                        logger.info("قفل قدیمی پاک شد")
+                        # ایجاد قفل جدید
+                        with open(LOCK_FILE, 'w') as f2:
+                            f2.write(str(time.time()))
+                        return True
+                return False  # قفل معتبر وجود دارد
+            except:
+                # در صورت خطا در خواندن، قفل را بازنشانی کن
+                try:
+                    os.remove(LOCK_FILE)
+                except:
+                    pass
+                with open(LOCK_FILE, 'w') as f:
+                    f.write(str(time.time()))
+                return True
+        else:
+            # قفل وجود ندارد، ایجاد کن
+            with open(LOCK_FILE, 'w') as f:
+                f.write(str(time.time()))
+            return True
+    except Exception as e:
+        logger.error(f"خطا در قفل: {e}")
+        return True  # در صورت خطا، اجازه اجرا بده
+
+def release_lock():
+    """آزاد کردن قفل"""
+    try:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+            logger.info("قفل آزاد شد")
+    except Exception as e:
+        logger.error(f"خطا در آزاد کردن قفل: {e}")
+
 # ========== ساخت اپلیکیشن Flask ==========
 app = Flask(__name__)
 
@@ -48,6 +94,19 @@ def delete_webhook():
         return response.json()
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+@app.route('/lock-status')
+def lock_status():
+    """بررسی وضعیت قفل"""
+    if os.path.exists(LOCK_FILE):
+        try:
+            with open(LOCK_FILE, 'r') as f:
+                timestamp = float(f.read())
+                elapsed = time.time() - timestamp
+                return {"locked": True, "elapsed_seconds": elapsed}
+        except:
+            return {"locked": True, "error": "خطا در خواندن قفل"}
+    return {"locked": False}
 
 # ========== کلاس مترجم امن ==========
 class SafeTranslator:
@@ -210,16 +269,22 @@ async def on_message(message: Message):
     if message.text is None:
         return
     
-    user_id = str(message.chat.id)
-    user_text = message.text.strip()
+    # ========== چک کردن قفل ==========
+    if not acquire_lock():
+        logger.info("قفل وجود دارد، پیام نادیده گرفته شد")
+        return
     
-    # ========== دستورات (همه با / شروع میشن) ==========
-    
-    # /start یا /s
-    if user_text in ['/start', '/s']:
-        target_lang = user_manager.get_target_lang(user_id)
-        lang_display = get_lang_display(target_lang)
-        welcome = f"""
+    try:
+        user_id = str(message.chat.id)
+        user_text = message.text.strip()
+        
+        # ========== دستورات (همه با / شروع میشن) ==========
+        
+        # /start یا /s
+        if user_text in ['/start', '/s']:
+            target_lang = user_manager.get_target_lang(user_id)
+            lang_display = get_lang_display(target_lang)
+            welcome = f"""
 🤖 **ربات ترجمه حرفه‌ای**
 
 سلام! من یک ربات ترجمه هستم.
@@ -237,33 +302,33 @@ async def on_message(message: Message):
 📝 **نحوه استفاده:**
 1. با /setlang زبان مقصد رو انتخاب کن
 2. هر متنی بفرست تا ترجمه بشه
-        """
-        await message.reply(welcome)
-        return
-    
-    # /languages یا /l
-    if user_text in ['/languages', '/l']:
-        lang_list = []
-        for code, info in LANGUAGES.items():
-            lang_list.append(f"{info['emoji']} `{code}` → {info['name']}")
+            """
+            await message.reply(welcome)
+            return
         
-        reply = f"""
+        # /languages یا /l
+        if user_text in ['/languages', '/l']:
+            lang_list = []
+            for code, info in LANGUAGES.items():
+                lang_list.append(f"{info['emoji']} `{code}` → {info['name']}")
+            
+            reply = f"""
 🌍 **زبان‌های قابل ترجمه**
 
 {chr(10).join(lang_list)}
 
 💡 برای تغییر زبان از /setlang استفاده کن
-        """
-        await message.reply(reply)
-        return
-    
-    # /setlang یا /sl (تنها راه تغییر زبان)
-    if user_text in ['/setlang', '/sl']:
-        popular_codes = ['fa', 'en', 'ar', 'tr', 'de', 'fr', 'es']
-        popular_list = "\n".join([f"{LANGUAGES[code]['emoji']} `{code}` → {LANGUAGES[code]['name']}" 
-                                 for code in popular_codes if code in LANGUAGES])
+            """
+            await message.reply(reply)
+            return
         
-        reply = f"""
+        # /setlang یا /sl (تنها راه تغییر زبان)
+        if user_text in ['/setlang', '/sl']:
+            popular_codes = ['fa', 'en', 'ar', 'tr', 'de', 'fr', 'es']
+            popular_list = "\n".join([f"{LANGUAGES[code]['emoji']} `{code}` → {LANGUAGES[code]['name']}" 
+                                     for code in popular_codes if code in LANGUAGES])
+            
+            reply = f"""
 🗣 **تنظیم زبان مقصد**
 
 کد زبان رو وارد کن:
@@ -271,18 +336,18 @@ async def on_message(message: Message):
 {popular_list}
 
 📝 مثال: `en` برای انگلیسی، `fa` برای فارسی
-        """
-        user_states[user_id] = 'waiting_for_lang'
-        await message.reply(reply)
-        return
-    
-    # /status یا /st
-    if user_text in ['/status', '/st']:
-        target_lang = user_manager.get_target_lang(user_id)
-        lang_display = get_lang_display(target_lang)
-        user_stats = user_manager.get_user_stats(user_id)
+            """
+            user_states[user_id] = 'waiting_for_lang'
+            await message.reply(reply)
+            return
         
-        reply = f"""
+        # /status یا /st
+        if user_text in ['/status', '/st']:
+            target_lang = user_manager.get_target_lang(user_id)
+            lang_display = get_lang_display(target_lang)
+            user_stats = user_manager.get_user_stats(user_id)
+            
+            reply = f"""
 📊 **وضعیت شما**
 
 🌐 **زبان مقصد:** {lang_display}
@@ -290,28 +355,28 @@ async def on_message(message: Message):
 📝 **تعداد ترجمه:** {format_number(user_stats['count'])} 
 
 💡 برای تغییر زبان: /setlang
-        """
-        await message.reply(reply)
-        return
-    
-    # /stats
-    if user_text in ['/stats']:
-        total = bot_stats.get('total_translations', 0)
-        users_count = len(bot_stats.get('users', {}))
+            """
+            await message.reply(reply)
+            return
         
-        reply = f"""
+        # /stats
+        if user_text in ['/stats']:
+            total = bot_stats.get('total_translations', 0)
+            users_count = len(bot_stats.get('users', {}))
+            
+            reply = f"""
 📊 **آمار کلی ربات**
 
 📝 **کل ترجمه‌ها:** {format_number(total)}
 👥 **کاربران فعال:** {format_number(users_count)}
 ⚡ **وضعیت:** آنلاین ✅
-        """
-        await message.reply(reply)
-        return
-    
-    # /help یا /h
-    if user_text in ['/help', '/h']:
-        reply = """
+            """
+            await message.reply(reply)
+            return
+        
+        # /help یا /h
+        if user_text in ['/help', '/h']:
+            reply = """
 📖 **راهنما:**
 
 ⚡ **دستورات:**
@@ -326,98 +391,104 @@ async def on_message(message: Message):
 هر متنی بفرستی، ترجمه میشه.
 
 💡 **نکته:** دیگه با فرستادن `en` یا `fa` زبان عوض نمیشه. فقط با /setlang
-        """
-        await message.reply(reply)
-        return
-    
-    # ========== مدیریت انتخاب زبان (از /setlang) ==========
-    if user_id in user_states and user_states[user_id] == 'waiting_for_lang':
-        lang_code = user_text.lower()
+            """
+            await message.reply(reply)
+            return
         
-        if lang_code in LANGUAGES:
-            if user_manager.set_target_lang(user_id, lang_code):
-                del user_states[user_id]
-                lang_info = get_lang_info(lang_code)
-                await message.reply(f"""
+        # ========== مدیریت انتخاب زبان (از /setlang) ==========
+        if user_id in user_states and user_states[user_id] == 'waiting_for_lang':
+            lang_code = user_text.lower()
+            
+            if lang_code in LANGUAGES:
+                if user_manager.set_target_lang(user_id, lang_code):
+                    del user_states[user_id]
+                    lang_info = get_lang_info(lang_code)
+                    await message.reply(f"""
 ✅ **زبان تنظیم شد!**
 
 🌐 زبان مقصد: {lang_info['emoji']} **{lang_info['name']}** (`{lang_code}`)
 
 ✨ حالا هر متنی بفرستی به {lang_info['name']} ترجمه میشه.
-                """)
+                    """)
+                else:
+                    await message.reply("❌ خطا در ذخیره تنظیمات!")
             else:
-                await message.reply("❌ خطا در ذخیره تنظیمات!")
-        else:
-            await message.reply(f"""
+                await message.reply(f"""
 ❌ کد `{user_text}` معتبر نیست.
 
 📋 برای مشاهده لیست: /languages
-            """)
-        return
-    
-    # ========== ترجمه ==========
-    if len(user_text) < 1:
-        await message.reply("📝 لطفاً متن معتبری بفرست.")
-        return
-    
-    try:
-        status_msg = await message.reply("⏳ در حال ترجمه...")
+                """)
+            return
         
-        target_lang = user_manager.get_target_lang(user_id)
-        target_info = get_lang_info(target_lang)
+        # ========== ترجمه ==========
+        if len(user_text) < 1:
+            await message.reply("📝 لطفاً متن معتبری بفرست.")
+            return
         
-        # تشخیص زبان
         try:
-            loop = asyncio.get_event_loop()
-            detected_lang = await loop.run_in_executor(
-                executor,
-                safe_translator.detect_language,
-                user_text
-            )
-            if detected_lang not in LANGUAGES:
+            status_msg = await message.reply("⏳ در حال ترجمه...")
+            
+            target_lang = user_manager.get_target_lang(user_id)
+            target_info = get_lang_info(target_lang)
+            
+            # تشخیص زبان
+            try:
+                loop = asyncio.get_event_loop()
+                detected_lang = await loop.run_in_executor(
+                    executor,
+                    safe_translator.detect_language,
+                    user_text
+                )
+                if detected_lang not in LANGUAGES:
+                    detected_lang = 'en'
+            except:
                 detected_lang = 'en'
-        except:
-            detected_lang = 'en'
-        
-        # اگه زبان یکی بود
-        if detected_lang == target_lang:
-            await status_msg.edit(f"ℹ️ متن به {target_info['emoji']} **{target_info['name']}** هست. نیازی به ترجمه نیست!")
-            return
-        
-        # ترجمه
-        translated_text = await loop.run_in_executor(
-            executor,
-            safe_translator.translate_text,
-            user_text,
-            detected_lang,
-            target_lang
-        )
-        
-        if not translated_text:
-            await status_msg.edit("❌ خطا در ترجمه! دوباره تلاش کن.")
-            return
-        
-        user_manager.increment_translation(user_id)
-        src_info = get_lang_info(detected_lang)
-        
-        reply_text = f"""
+            
+            # اگه زبان یکی بود
+            if detected_lang == target_lang:
+                await status_msg.edit(f"ℹ️ متن به {target_info['emoji']} **{target_info['name']}** هست. نیازی به ترجمه نیست!")
+                return
+            
+            # ترجمه
+            translated_text = await loop.run_in_executor(
+                executor,
+                safe_translator.translate_text,
+                user_text,
+                detected_lang,
+                target_lang
+            )
+            
+            if not translated_text:
+                await status_msg.edit("❌ خطا در ترجمه! دوباره تلاش کن.")
+                return
+            
+            user_manager.increment_translation(user_id)
+            src_info = get_lang_info(detected_lang)
+            
+            reply_text = f"""
 {src_info['emoji']} **{src_info['name']}** → {target_info['emoji']} **{target_info['name']}**
 
 📝 {user_text}
 
 ✅ {translated_text}
-        """
-        
-        await status_msg.edit(reply_text)
-        
+            """
+            
+            await status_msg.edit(reply_text)
+            
+        except Exception as e:
+            logger.error(f"خطا: {e}")
+            await message.reply("❌ خطا! دوباره تلاش کن.")
+            
     except Exception as e:
-        logger.error(f"خطا: {e}")
-        await message.reply("❌ خطا! دوباره تلاش کن.")
+        logger.error(f"خطای کلی: {e}")
+    finally:
+        # ========== آزاد کردن قفل ==========
+        release_lock()
 
 # ========== اجرای ربات ==========
 def run_bot():
     print("=" * 50)
-    print("🤖 ربات ترجمه - نسخه نهایی")
+    print("🤖 ربات ترجمه - نسخه نهایی با قفل")
     print("=" * 50)
     print(f"🌍 {len(LANGUAGES)} زبان پشتیبانی میشه.")
     print(f"📝 {bot_stats.get('total_translations', 0)} ترجمه انجام شده.")
