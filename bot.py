@@ -10,6 +10,7 @@ from datetime import datetime
 from flask import Flask
 import threading
 import time
+import requests
 from langdetect import detect, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
@@ -24,15 +25,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ========== تنظیمات اولیه ==========
-TOKEN = os.getenv('BALE_TOKEN', '643390345:qpmMhzvaLfpMDBvugEW5NJQz1DD1KGohbP4')
+TOKEN = os.getenv('BALE_TOKEN', '643390345:_RraKmp0R1jrJhE4z_JQhBh7oeOZMY03kXE')
 
 bot = Bot(TOKEN)
+
+# ========== ساخت اپلیکیشن Flask ==========
+app = Flask(__name__)
+
+# ========== مسیرهای Flask ==========
+
+@app.route('/')
+@app.route('/health')
+def health_check():
+    return "🤖 ربات ترجمه در حال اجراست!", 200
+
 @app.route('/delete_webhook')
 def delete_webhook():
-    import requests
-    url = f"https://api.bale.ai/v1/bots/{TOKEN}/deleteWebhook"
-    response = requests.get(url)
-    return response.json()
+    """حذف Webhook برای استفاده از Polling"""
+    try:
+        url = f"https://api.bale.ai/v1/bots/{TOKEN}/deleteWebhook"
+        response = requests.get(url)
+        return response.json()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 # ========== کلاس مترجم امن ==========
 class SafeTranslator:
     def __init__(self):
@@ -159,6 +175,7 @@ def get_lang_display(lang_code):
 def format_number(num):
     return f"{num:,}".replace(',', '٬')
 
+# ========== کلاس مدیریت کاربر ==========
 class UserManager:
     def __init__(self):
         self.settings = user_settings
@@ -397,30 +414,35 @@ async def on_message(message: Message):
         logger.error(f"خطا: {e}")
         await message.reply("❌ خطا! دوباره تلاش کن.")
 
-# ========== Flask ==========
-app = Flask(__name__)
-
-@app.route('/')
-@app.route('/health')
-def health_check():
-    return "🤖 ربات ترجمه در حال اجراست!", 200
-
+# ========== اجرای ربات ==========
 def run_bot():
     print("=" * 50)
-    print("🤖 ربات ترجمه - نسخه جدا شده")
+    print("🤖 ربات ترجمه - نسخه نهایی")
     print("=" * 50)
     print(f"🌍 {len(LANGUAGES)} زبان پشتیبانی میشه.")
     print(f"📝 {bot_stats.get('total_translations', 0)} ترجمه انجام شده.")
     print("✅ ربات آماده است!")
     print("=" * 50)
+    
+    # حذف Webhook در شروع
+    try:
+        url = f"https://api.bale.ai/v1/bots/{TOKEN}/deleteWebhook"
+        response = requests.get(url)
+        print(f"Webhook حذف شد: {response.json()}")
+    except Exception as e:
+        print(f"خطا در حذف Webhook: {e}")
+    
     try:
         bot.run()
     except Exception as e:
-        print(f"❌ خطا: {e}")
+        print(f"❌ خطا در اجرای ربات: {e}")
 
 if __name__ == "__main__":
+    # اجرای ربات در ترد جداگانه
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
     
+    # اجرای وب سرور Flask
     port = int(os.environ.get('PORT', 5000))
+    print(f"🌐 وب سرور روی پورت {port} در حال اجراست...")
     app.run(host='0.0.0.0', port=port)
